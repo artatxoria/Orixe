@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    env_file:
+      - ./apps/backend/.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    container_name: orixe-backend
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/backend:/app
+      - /app/node_modules
+    environment:
+      - NODE_ENV=development
+    networks:
+      - orixe-network
+
+networks:
+  orixe-network:
+    driver: bridge

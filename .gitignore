@@ -1,0 +1,4 @@
+node_modules/\ndist/\nout/\n.vscode-test/\n*.vsix\n.env\n.DS_Store
+dist/
+.env
+.DS_Store

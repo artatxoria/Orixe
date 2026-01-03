@@ -1,0 +1,1 @@
+# ADR-001: Estructura Monorepo\n\n**Estado:** Aceptado\n**Contexto:** Necesitamos gestionar la extensión de VS Code y el backend en un solo lugar.\n**Decisión:** Usar npm workspaces con Node.js.\n**Consecuencias:** Gestión de dependencias centralizada y facilidad de orquestación con Docker.
