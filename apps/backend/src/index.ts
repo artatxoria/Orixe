@@ -2,6 +2,10 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import OpenAI from 'openai';
 import axios from 'axios';
+import dotenv from 'dotenv';
+
+// Cargar variables de entorno
+dotenv.config();
 
 const server = Fastify({ logger: true });
 
@@ -17,18 +21,32 @@ const cerebras = new OpenAI({
 });
 
 const ollama = new OpenAI({
-    apiKey: 'ollama', // No necesaria para local
+    apiKey: 'ollama',
     baseURL: 'http://host.docker.internal:11434/v1'
 });
 
 server.register(cors);
 
+// --- ETAPA 04: Definición del Contrato (Schema) ---
+const chatSchema = {
+    body: {
+        type: 'object',
+        required: ['prompt'],
+        properties: {
+            prompt: { 
+                type: 'string', 
+                minLength: 1
+            }
+        }
+    }
+};
+
 server.get('/health', async () => {
     return { status: 'ok', service: 'orixe-backend' };
 });
 
-// Endpoint de Chat con Fallback
-server.post('/chat', async (request, reply) => {
+// Endpoint de Chat con Validación y Fallback
+server.post('/chat', { schema: chatSchema }, async (request, reply) => {
     const { prompt } = request.body as { prompt: string };
 
     // 1. Intentar Cerebras
@@ -50,11 +68,11 @@ server.post('/chat', async (request, reply) => {
         });
         return { source: 'groq', text: response.choices[0].message.content };
     } catch (e) {
-        server.log.error('Groq falló, intentando Ollama...');
+        server.log.error('Groq falló, intentando Hugging Face...');
     }
+
     // 3. INTENTAR HUGGING FACE
     try {
-        server.log.info('Intentando Hugging Face...');
         const hfResponse = await axios.post(
             'https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.3',
             { inputs: prompt },
@@ -66,29 +84,34 @@ server.post('/chat', async (request, reply) => {
             }
         );
         
-        // La respuesta de HF suele ser un array: [{ generated_text: "..." }]
         const result = hfResponse.data;
         const text = Array.isArray(result) ? result[0].generated_text : result.generated_text;
         
         return { source: 'huggingface', text: text };
     } catch (e: any) { 
-        server.log.error(`Hugging Face falló: ${e.message}`); 
+        server.log.error(`Hugging Face falló, intentando Ollama...`); 
     }
+
     // 4. Última instancia: Ollama Local
     try {
         const response = await ollama.chat.completions.create({
-            model: 'mistral:7b-instruct', // Asegúrate de que este nombre coincida con 'ollama list'
+            model: 'mistral', 
             messages: [{ role: 'user', content: prompt }]
         });
         return { source: 'ollama', text: response.choices[0].message.content };
     } catch (e) {
-        return reply.status(500).send({ error: 'Todos los modelos fallaron' });
+        server.log.error('Ollama falló también.');
+        return reply.status(500).send({ 
+            error: 'Todos los modelos fallaron',
+            message: 'No se pudo obtener respuesta de ninguna fuente de IA.'
+        });
     }
 });
 
 const start = async () => {
     try {
         await server.listen({ port: 3000, host: '0.0.0.0' });
+        console.log('🚀 Backend de Orixe ejecutándose en http://localhost:3000');
     } catch (err) {
         server.log.error(err);
         process.exit(1);

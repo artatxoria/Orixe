@@ -12,6 +12,24 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "orixe-sidebar",
+          "title": "Orixe AI",
+          "icon": "$(sparkle)"
+        }
+      ]
+    },
+    "views": {
+      "orixe-sidebar": [
+        {
+          "type": "webview",
+          "id": "orixe.chatView",
+          "name": "Chat de Orixe"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "orixe.helloWorld",

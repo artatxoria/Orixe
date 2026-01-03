@@ -1,7 +1,17 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
+import { OrixeChatProvider } from './OrixeChatProvider';
 
 export function activate(context: vscode.ExtensionContext) {
+    
+    // --- 1. REGISTRO DEL PANEL LATERAL (ETAPA 06) ---
+    const provider = new OrixeChatProvider(context.extensionUri);
+    
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(OrixeChatProvider.viewType, provider)
+    );
+
+    // --- 2. COMANDO CLÁSICO DE SALUDO (TU CÓDIGO ACTUAL) ---
     let disposable = vscode.commands.registerCommand('orixe.helloWorld', async () => {
         
         // 1. Pedir una pregunta al usuario
@@ -10,7 +20,7 @@ export function activate(context: vscode.ExtensionContext) {
             placeHolder: "Ej: ¿Cómo hago un bucle en Python?"
         });
 
-        if (!userPrompt) return; // Si cancela con Esc
+        if (!userPrompt) return; 
 
         // 2. Mostrar mensaje de "Pensando..."
         vscode.window.withProgress({
@@ -26,8 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
 
                 const { source, text } = response.data;
 
-                // 4. Mostrar la respuesta en un panel lateral o mensaje
-                // Por ahora, un mensaje de información grande:
+                // 4. Mostrar la respuesta
                 vscode.window.showInformationMessage(`[${source.toUpperCase()}]: ${text}`, { modal: true });
 
             } catch (error) {
@@ -37,4 +46,8 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     context.subscriptions.push(disposable);
+    
+    console.log('Orixe AI: Extension activa con Panel Lateral y Comandos.');
 }
+
+export function deactivate() {}
