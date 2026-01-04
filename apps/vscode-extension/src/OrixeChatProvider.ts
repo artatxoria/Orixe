@@ -51,6 +51,10 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
         const editor = vscode.window.activeTextEditor;
         let contextCode = "";
 
+        const projectMap = await this.getProjectStructure();
+
+        const diagnostics = this.getDiagnostics();
+        
         if (editor) {
             const selection = editor.selection;
             const selectedText = editor.document.getText(selection);
@@ -68,7 +72,8 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
         this._view.webview.postMessage({ type: 'addMessage', role: 'user', text: prompt });
 
         try {
-            const fullPrompt = `${prompt}${contextCode}`;
+            const fullPrompt = `MAPA DEL PROYECTO:\n${projectMap}\n\n${diagnostics}\n\n${contextCode}\n\nPREGUNTA: ${prompt}`;
+        
             const response = await axios.post('http://127.0.0.1:3000/chat', { prompt: fullPrompt });
             
             const { source, text } = response.data;
@@ -159,4 +164,40 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
             </html>
         `;
     }
+
+    private async getProjectStructure(): Promise<string> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders) return "No hay un workspace abierto.";
+
+        // Buscamos todos los archivos, pero ignoramos carpetas pesadas
+        const files = await vscode.workspace.findFiles(
+            '**/*', 
+            '{**/node_modules/**,**/dist/**,**/.git/**,**/out/**}'
+        );
+
+        const structure = files.map(f => vscode.workspace.asRelativePath(f)).sort();
+        return "Estructura del proyecto:\n- " + structure.join('\n- ');
+    }
+
+    private getDiagnostics(): string {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) return "";
+
+        // Obtenemos los errores/warnings del archivo actual
+        const diagnostics = vscode.languages.getDiagnostics(editor.document.uri);
+        
+        if (diagnostics.length === 0) return "No se detectaron errores en el archivo actual.";
+
+        const errorList = diagnostics
+            .map(d => {
+                const severity = vscode.DiagnosticSeverity[d.severity];
+                return `[${severity}] Línea ${d.range.start.line + 1}: ${d.message}`;
+            })
+            .join('\n');
+
+        return `DIAGNÓSTICOS DEL COMPILADOR:\n${errorList}`;
+}
+
+
+
 }
