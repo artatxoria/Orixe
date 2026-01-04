@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import axios from 'axios';
+import { marked } from 'marked';
 
 export class OrixeChatProvider implements vscode.WebviewViewProvider {
     public static readonly viewType = 'orixe.chatView';
@@ -13,45 +14,77 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
         _token: vscode.CancellationToken,
     ) {
         this._view = webviewView;
-
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [this._extensionUri]
         };
-
         webviewView.webview.html = this._getHtmlContent();
 
-        // NUEVO: Escuchar mensajes desde el HTML del Webview
         webviewView.webview.onDidReceiveMessage(async (data) => {
-            if (data.type === 'sendPrompt') {
-                this.handleChat(data.value);
+            switch (data.type) {
+                case 'sendPrompt':
+                    this.handleChat(data.value);
+                    break;
+                case 'insertCode':
+                    this.insertCodeAtCursor(data.value);
+                    break;
             }
         });
     }
 
-    // NUEVO: Lógica para hablar con el backend y devolver la respuesta al HTML
+    private insertCodeAtCursor(code: string) {
+        const editor = vscode.window.activeTextEditor;
+        if (editor) {
+            editor.edit(editBuilder => {
+                // Inserta el código en la posición actual del cursor (o reemplaza selección)
+                editBuilder.insert(editor.selection.active, code);
+            });
+            vscode.window.showInformationMessage('Código inyectado por Orixe');
+        } else {
+            vscode.window.showErrorMessage('Abre un archivo para insertar el código.');
+        }
+    }
+
     private async handleChat(prompt: string) {
         if (!this._view) return;
 
-        // 1. Mostrar mensaje del usuario en el chat
+        const editor = vscode.window.activeTextEditor;
+        let contextCode = "";
+
+        if (editor) {
+            const selection = editor.selection;
+            const selectedText = editor.document.getText(selection);
+            const languageId = editor.document.languageId;
+            
+            if (selectedText) {
+                contextCode = `\n\nContexto (selección en ${languageId}):\n\`\`\`${languageId}\n${selectedText}\n\`\`\``;
+            } else {
+                const fullText = editor.document.getText();
+                const previewText = fullText.length > 5000 ? fullText.substring(0, 5000) + "...[truncado]" : fullText;
+                contextCode = `\n\nContexto (archivo ${languageId}):\n\`\`\`${languageId}\n${previewText}\n\`\`\``;
+            }
+        }
+
         this._view.webview.postMessage({ type: 'addMessage', role: 'user', text: prompt });
 
         try {
-            // 2. Llamar al backend (igual que hacías en extension.ts)
-            const response = await axios.post('http://localhost:3000/chat', { prompt });
+            const fullPrompt = `${prompt}${contextCode}`;
+            const response = await axios.post('http://127.0.0.1:3000/chat', { prompt: fullPrompt });
+            
             const { source, text } = response.data;
-
-            // 3. Enviar respuesta de la IA al HTML
+            const htmlFromMarkdown = await marked.parse(text);
+            
             this._view.webview.postMessage({ 
                 type: 'addMessage', 
                 role: 'ai', 
-                text: `[${source.toUpperCase()}]: ${text}` 
+                text: `<strong>[${source.toUpperCase()}]</strong><br>${htmlFromMarkdown}` 
             });
+
         } catch (error) {
             this._view.webview.postMessage({ 
                 type: 'addMessage', 
                 role: 'error', 
-                text: 'Error: No puedo conectar con el backend.' 
+                text: 'Error: El backend no responde.' 
             });
         }
     }
@@ -61,26 +94,31 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
             <!DOCTYPE html>
             <html>
             <head>
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src http://127.0.0.1:3000 http://localhost:3000;">
                 <style>
-                    body { font-family: var(--vscode-font-family); padding: 10px; color: var(--vscode-foreground); }
-                    #chat { height: calc(100vh - 80px); overflow-y: auto; padding: 5px; }
-                    .msg { margin-bottom: 10px; padding: 5px; border-radius: 4px; }
-                    .user { background: var(--vscode-button-secondaryBackground); border-left: 3px solid cyan; }
-                    .ai { background: var(--vscode-editor-background); border-left: 3px solid lime; }
-                    .error { color: var(--vscode-errorForeground); font-size: 0.8em; }
-                    input { width: 100%; position: fixed; bottom: 10px; left: 0; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 8px; }
+                    body { font-family: var(--vscode-font-family); padding: 10px; color: var(--vscode-foreground); margin: 0; }
+                    #chat { height: calc(100vh - 120px); overflow-y: auto; padding: 10px; display: flex; flex-direction: column; }
+                    .msg { margin-bottom: 15px; padding: 10px; border-radius: 6px; line-height: 1.5; font-size: 13px; position: relative; }
+                    .user { background: var(--vscode-button-secondaryBackground); border-left: 4px solid #007acc; align-self: flex-end; width: 85%; }
+                    .ai { background: var(--vscode-welcomePage-tileBackground); border-left: 4px solid #388a34; align-self: flex-start; width: 85%; }
+                    pre { background: #1e1e1e; padding: 12px; overflow-x: auto; border-radius: 4px; position: relative; margin-top: 10px; }
+                    code { font-family: var(--vscode-editor-font-family); color: #dcdcdc; }
+                    .insert-btn { 
+                        display: block; margin-top: 8px; padding: 4px 8px; background: #388a34; color: white; 
+                        border: none; border-radius: 3px; cursor: pointer; font-size: 11px; font-weight: bold;
+                    }
+                    .insert-btn:hover { background: #2d6d2a; }
+                    input { width: calc(100% - 20px); position: fixed; bottom: 15px; left: 10px; background: var(--vscode-input-background); color: var(--vscode-input-foreground); border: 1px solid var(--vscode-input-border); padding: 10px; border-radius: 4px; outline: none; }
                 </style>
             </head>
             <body>
                 <div id="chat"></div>
-                <input type="text" id="prompt" placeholder="Escribe a Orixe..." />
-                
+                <input type="text" id="prompt" placeholder="Pregunta algo al código..." autofocus />
                 <script>
                     const vscode = acquireVsCodeApi();
                     const chatDiv = document.getElementById('chat');
                     const input = document.getElementById('prompt');
 
-                    // Enviar al pulsar Enter
                     input.addEventListener('keypress', (e) => {
                         if (e.key === 'Enter' && input.value.trim()) {
                             vscode.postMessage({ type: 'sendPrompt', value: input.value });
@@ -88,13 +126,30 @@ export class OrixeChatProvider implements vscode.WebviewViewProvider {
                         }
                     });
 
-                    // Recibir mensajes desde la extensión
                     window.addEventListener('message', event => {
                         const message = event.data;
                         if (message.type === 'addMessage') {
                             const div = document.createElement('div');
                             div.className = 'msg ' + message.role;
-                            div.innerText = message.text;
+                            div.innerHTML = message.text;
+
+                            // Si es respuesta de la IA, buscamos bloques de código para añadir el botón "Insertar"
+                            if (message.role === 'ai') {
+                                const codeBlocks = div.querySelectorAll('pre');
+                                codeBlocks.forEach(block => {
+                                    const codeElement = block.querySelector('code');
+                                    if (codeElement) {
+                                        const btn = document.createElement('button');
+                                        btn.className = 'insert-btn';
+                                        btn.innerText = '⇥ Insertar en editor';
+                                        btn.onclick = () => {
+                                            vscode.postMessage({ type: 'insertCode', value: codeElement.innerText });
+                                        };
+                                        block.appendChild(btn);
+                                    }
+                                });
+                            }
+
                             chatDiv.appendChild(div);
                             chatDiv.scrollTop = chatDiv.scrollHeight;
                         }
